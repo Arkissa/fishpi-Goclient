@@ -54,6 +54,7 @@ type getRedpacketContent struct {
 
 type apiKeyContent struct {
 	Key  string `json:"key"`
+	Msg  string `json:"msg"`
 	Code int    `json:"code"`
 }
 
@@ -74,13 +75,13 @@ type messageType map[string]func(message *JSON)
 type JSON mdContent
 
 var (
-	help                    string
-	rockMod, heartMod, open bool
-	packageContent          getRedpacketContent
-	sendResponseContent     responseMsgCode
-	liveness                responseliveness
-	yesterdayPonit          yesterday
-	helpInfo                = []string{
+	help                string
+	rockMod, heartMod   bool
+	packageContent      getRedpacketContent
+	sendResponseContent responseMsgCode
+	liveness            responseliveness
+	yesterdayPonit      yesterday
+	helpInfo            = []string{
 		"------------------------------------------\n",
 		"> #help\n",
 		"> 查看帮助文档\n",

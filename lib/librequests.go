@@ -64,7 +64,7 @@ func (fish *fishpiUserProperty) WssLogin() error {
 	k["userPassword"] = fish.Password
 	k["mfaCode"] = ""
 	str := k["mfaCode"]
-	fmt.Printf("%s", "两步认证一次性密码（如未设置请直接回车）:")
+	fmt.Printf("%s\n>", "两步认证一次性密码（如未设置请直接回车）")
 	if _, err := fmt.Scanln(&str); err != nil {
 		return err
 	}
@@ -75,7 +75,7 @@ func (fish *fishpiUserProperty) WssLogin() error {
 	}
 	_ = json.Unmarshal(responseBody, &apikey)
 	if apikey.Code != 0 {
-		return errors.New("password error")
+		return errors.New(apikey.Msg)
 	}
 	fish.ApiKey = apikey.Key
 	return nil
@@ -154,9 +154,9 @@ func (fish *fishpiUserProperty) WssOpenRedPacket(msg *JSON) {
 	var (
 		n          int
 		m          string
+		open       bool
 		msgContent redContent
 	)
-	open = true
 	openRedPacke["apiKey"] = fish.ApiKey
 	openRedPacke["oId"] = msg.OID
 	json.Unmarshal([]byte(msg.Content), &msgContent)
@@ -165,40 +165,37 @@ func (fish *fishpiUserProperty) WssOpenRedPacket(msg *JSON) {
 		n = rand.Intn(2)
 		n = rand.Intn(2)
 		openRedPacke["gesture"] = fmt.Sprintf("%d", n)
-	} else {
-		open = false
 	}
 
 	if msgContent.Type == "heartbeat" && heartMod {
-		if !fish.redPacketStatus(msg, &msgContent) {
+		open = fish.redPacketStatus(msg, &msgContent)
+		if !open {
 			return
 		}
-	} else {
-		open = false
 	}
 
 	go fish.WssPrintMsg(msg.UserNickname, msg.UserName, redType[msgContent.Type], msgContent.Msg)
 
-	time.Sleep(3 * time.Second)
+	start := time.Now().Unix()
 	if !open {
+		for k := (int64)(0); k < 3; k = (time.Now().Unix() - start) {
+		}
+	}
+	responseBody, err := Requests("POST", "https://fishpi.cn/chat-room/red-packet/open", openRedPacke)
+	if err != nil {
+		log.Println("requests set err: ", err)
 		return
-	} else {
-		responseBody, err := Requests("POST", "https://fishpi.cn/chat-room/red-packet/open", openRedPacke)
-		if err != nil {
-			log.Println("requests set err: ", err)
-			return
+	}
+	if err = json.Unmarshal(responseBody, &packageContent); err != nil {
+		log.Println("send message response json unmarshal err: ", err)
+	}
+	for _, value := range packageContent.Who {
+		if value.UserMoney >= 0 {
+			m = fmt.Sprintf("抢到%d积分！！", value.UserMoney)
+		} else {
+			m = fmt.Sprintf("失去了%d积分……", value.UserMoney)
 		}
-		if err = json.Unmarshal(responseBody, &packageContent); err != nil {
-			log.Println("send message response json unmarshal err: ", err)
-		}
-		for _, value := range packageContent.Who {
-			if value.UserMoney >= 0 {
-				m = fmt.Sprintf("获取%d积分！！", value.UserMoney)
-			} else {
-				m = fmt.Sprintf("失去了%d积分……", value.UserMoney)
-			}
-			go fish.WssPrintMsg("红包机器人", value.UserName, "打开了红包", m)
-		}
+		go fish.WssPrintMsg("红包机器人", value.UserName, "打开了红包", m)
 	}
 }
 
@@ -235,7 +232,7 @@ func (fish *fishpiUserProperty) redPacketStatus(msg *JSON, msgContent *redConten
 		for _, value := range msgContent.Who {
 			if value.UserMoney >= 1 {
 				fish.WssPrintMsg("红包机器人", value.UserName, "打开了红包",
-					fmt.Sprintf("%s获取了%d积分?!不好有诈！快跑！！", value.UserName, value.UserMoney))
+					fmt.Sprintf("%s抢到了%d积分?!不好有诈！快跑！！", value.UserName, value.UserMoney))
 				return false
 			}
 		}
@@ -423,7 +420,7 @@ func (fish *fishpiUserProperty) WssGetYesterdayPoint() {
 	case -1:
 		s = "已经领取过积分了"
 	default:
-		s = fmt.Sprintf("获取到%d积分", yesterdayPonit.Sum)
+		s = fmt.Sprintf("抢到到%d积分", yesterdayPonit.Sum)
 	}
 	fish.WssPrintMsg("Fish机器人", fish.UserName, "命令", s)
 }
