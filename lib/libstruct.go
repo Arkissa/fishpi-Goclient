@@ -52,45 +52,50 @@ type getRedpacketContent struct {
 	} `json:"who"`
 }
 
+type apiKeyContent struct {
+	Key  string `json:"key"`
+	Code int    `json:"code"`
+}
+
 type responseMsgCode struct {
 	Code int `json:"code"`
 }
 
 type responseliveness struct {
-	Liveness float32
+	Liveness float32 `json:"liveness"`
 }
 
 type yesterday struct {
-	Sum int
+	Sum int `json:"sum"`
 }
-
-const (
-	FISHPI   = "https://fishpi.cn"
-	APIKEY   = "68931c89cc2ecbb1448b2f7edf9b484f8ad006b6dc4fd178d4255821e76c30d78c8b6cc673f15623da1ae4acbda58064a9c6fdca49958af35bfe9abf62f1e8058756d0a6f9740dd38670e7ebe5d69323c2a3296589fd84feefd51e2cd90938bc"
-	USERNAME = "bulabula"
-)
 
 type messageType map[string]func(message *JSON)
 
+type JSON mdContent
+
 var (
-	SendMsg, help           string
+	help                    string
 	rockMod, heartMod, open bool
 	packageContent          getRedpacketContent
 	sendResponseContent     responseMsgCode
 	liveness                responseliveness
 	yesterdayPonit          yesterday
 	helpInfo                = []string{
-		"*****************************************\n",
+		"------------------------------------------\n",
 		"> #help\n",
 		"> 查看帮助文档\n",
 		"> 命令均以#号开头目前只支持列出的命令\n",
-		"> #rockmod",
+		"> #rockmod\n",
 		"> 开启抢猜拳红包模式\n",
 		"> 提高一捏捏的概率\n",
-		"> #heartmod",
+		"> #heartmod\n",
 		"> 开启抢心跳红包模式\n",
 		"> 提高抢到积分的概率以及规避扣积分的概率\n",
-		">*****************************************\n",
+		"> #getpoint\n",
+		"> 领取昨日活跃奖励\n",
+		"------------------------------------------\n",
+		">ctrl + c 退出程序\n",
+		"------------------------------------------\n",
 	}
 	redChannel   = make(chan bool)
 	sendMessage  = make(map[string]string)
@@ -101,20 +106,6 @@ var (
 		"average":           "普通红包",
 		"specify":           "专属红包",
 		"rockPaperScissors": "猜拳红包",
-	}
-	command = map[string]func(){
-		"#rockmod": func() {
-			WssSetRockMod()
-		},
-		"#heartmod": func() {
-			WssSetHeartMod()
-		},
-		"#getpoint": func() {
-			WssGetYesterdayPoint()
-		},
-		"#help": func() {
-			WssPrintMsg("Fish机器人", USERNAME, "命令", help)
-		},
 	}
 	reg = []string{
 		`^>(.*)(\[.*\]\(.*\)){1,}`,
