@@ -96,7 +96,6 @@ var (
 		"> 领取昨日活跃奖励\n",
 		"------------------------------------------\n",
 		">ctrl + c 退出程序\n",
-		"------------------------------------------\n",
 	}
 	redChannel   = make(chan bool)
 	sendMessage  = make(map[string]string)
@@ -109,7 +108,7 @@ var (
 		"rockPaperScissors": "猜拳红包",
 	}
 	reg = []string{
-		`^>(.*)(\[.*\]\(.*\)){1,}`,
+		`^>\S+((\[.*\]\(.*\))){1,}`,
 		`<.*>`,
 	}
 	client = &http.Client{}

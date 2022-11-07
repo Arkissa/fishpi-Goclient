@@ -64,9 +64,12 @@ func (fish *fishpiUserProperty) WssLogin() error {
 	k["userPassword"] = fish.Password
 	k["mfaCode"] = ""
 	str := k["mfaCode"]
-	fmt.Printf("%s\n>", "两步认证一次性密码（如未设置请直接回车）")
+	fmt.Printf("%s\n>", "两步认证一次性密码（如未设置请输入0）")
 	if _, err := fmt.Scanln(&str); err != nil {
 		return err
+	}
+	if str == "0" {
+		str = ""
 	}
 	k["mfaCode"] = strings.Split(str, "\n")[0]
 	responseBody, err := Requests("POST", "https://fishpi.cn/api/getKey", k)
@@ -108,16 +111,16 @@ func (fish *fishpiUserProperty) WssLink() {
 
 	mt := messageType{
 		"msg": func(message *JSON) {
-
+			var md string
 			if strings.Contains((*message).Content, "redPacket") {
 				fish.WssOpenRedPacket(message)
 			} else {
-				err := msgHandle(&message.Md, reg)
+				err := msgHandle(&message.Md, &md, reg)
 				if err != nil {
 					log.Println("message handle err: ", err)
 					return
 				}
-				fish.WssPrintMsg(message.UserNickname, message.UserName, "消息", message.Md)
+				fish.WssPrintMsg(message.UserNickname, message.UserName, "消息", md)
 			}
 		},
 
@@ -160,11 +163,14 @@ func (fish *fishpiUserProperty) WssOpenRedPacket(msg *JSON) {
 	openRedPacke["apiKey"] = fish.ApiKey
 	openRedPacke["oId"] = msg.OID
 	json.Unmarshal([]byte(msg.Content), &msgContent)
+	go fish.WssPrintMsg(msg.UserNickname, msg.UserName, redType[msgContent.Type], msgContent.Msg)
 	if msgContent.Type == "rockPaperScissors" && rockMod {
 		rand.Seed(time.Now().Unix())
 		n = rand.Intn(2)
 		n = rand.Intn(2)
 		openRedPacke["gesture"] = fmt.Sprintf("%d", n)
+	} else {
+		return
 	}
 
 	if msgContent.Type == "heartbeat" && heartMod {
@@ -172,9 +178,9 @@ func (fish *fishpiUserProperty) WssOpenRedPacket(msg *JSON) {
 		if !open {
 			return
 		}
+	} else {
+		return
 	}
-
-	go fish.WssPrintMsg(msg.UserNickname, msg.UserName, redType[msgContent.Type], msgContent.Msg)
 
 	start := time.Now().Unix()
 	if !open {
@@ -281,7 +287,7 @@ func (fish *fishpiUserProperty) WssGetLiveness() {
 	_ = json.Unmarshal(responseBody, &liveness)
 }
 
-func msgHandle(msg *string, reg []string) (err error) {
+func msgHandle(msg, md *string, reg []string) (err error) {
 	var re *regexp.Regexp
 	for _, r := range reg {
 		re, err = regexp.Compile(r)
@@ -289,6 +295,18 @@ func msgHandle(msg *string, reg []string) (err error) {
 			return err
 		}
 		*msg = re.ReplaceAllString(*msg, "")
+	}
+
+	for i, char := range *msg {
+		if i+1 == len(*msg) {
+			continue
+		}
+		if char == '\n' {
+			if (*msg)[i+1] == '\n' {
+				continue
+			}
+		}
+		*md += (string)(char)
 	}
 	return nil
 }
@@ -343,6 +361,7 @@ func setRequestBody(content map[string]string) (io.Reader, error) {
 }
 
 func (fish *fishpiUserProperty) WssClient() {
+	var c []string
 	for _, n := range helpInfo {
 		help += n
 	}
@@ -355,11 +374,8 @@ func (fish *fishpiUserProperty) WssClient() {
 			os.Exit(1)
 		} else {
 			s = strings.Split(s, "\n")[0]
-			c := strings.Split(s, " ")
-			if strings.HasPrefix(c[0], "#") {
-				if len(c) > 1 {
-					_ = c[1:]
-				}
+			if strings.HasPrefix(s, "#") {
+				c = strings.Split(s, " ")
 				switch c[0] {
 				case "#rockmod":
 					fish.WssSetRockMod()
@@ -373,7 +389,7 @@ func (fish *fishpiUserProperty) WssClient() {
 					fish.WssPrintMsg("Fish机器人", fish.UserName, "命令", "没有此命令"+c[0])
 				}
 			} else {
-				fish.SendMsg = c[0]
+				fish.SendMsg = s
 				fish.WssSendMsg()
 			}
 		}
