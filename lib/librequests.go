@@ -188,7 +188,6 @@ func (fish *fishpiUserProperty) WssOpenRedPacket(msg *JSON) {
 		log.Println("requests set err: ", err)
 		return
 	}
-	fmt.Println((string)(responseBody))
 	if err = json.Unmarshal(responseBody, &packageContent); err != nil {
 		log.Println("send message response json unmarshal err: ", err)
 	}
@@ -431,7 +430,7 @@ func (fish *fishpiUserProperty) WssGetYesterdayPoint() {
 	case -1:
 		s = "已经领取过积分了"
 	default:
-		s = fmt.Sprintf("抢到到%d积分", yesterdayPonit.Sum)
+		s = fmt.Sprintf("获取到%d积分", yesterdayPonit.Sum)
 	}
 	fish.WssPrintMsg("Fish机器人", fish.UserName, "命令", s)
 }
