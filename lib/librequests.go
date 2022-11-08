@@ -169,7 +169,6 @@ func (fish *fishpiUserProperty) WssOpenRedPacket(msg *JSON) {
 		n = rand.Intn(2)
 		n = rand.Intn(2)
 		openRedPacke["gesture"] = fmt.Sprintf("%d", n)
-		fmt.Println(n)
 	}
 
 	if msgContent.Type == "heartbeat" && heartMod {
