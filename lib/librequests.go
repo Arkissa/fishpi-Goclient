@@ -169,8 +169,7 @@ func (fish *fishpiUserProperty) WssOpenRedPacket(msg *JSON) {
 		n = rand.Intn(2)
 		n = rand.Intn(2)
 		openRedPacke["gesture"] = fmt.Sprintf("%d", n)
-	} else {
-		return
+		fmt.Println(n)
 	}
 
 	if msgContent.Type == "heartbeat" && heartMod {
@@ -178,8 +177,6 @@ func (fish *fishpiUserProperty) WssOpenRedPacket(msg *JSON) {
 		if !open {
 			return
 		}
-	} else {
-		return
 	}
 
 	start := time.Now().Unix()
@@ -192,6 +189,7 @@ func (fish *fishpiUserProperty) WssOpenRedPacket(msg *JSON) {
 		log.Println("requests set err: ", err)
 		return
 	}
+	fmt.Println((string)(responseBody))
 	if err = json.Unmarshal(responseBody, &packageContent); err != nil {
 		log.Println("send message response json unmarshal err: ", err)
 	}
@@ -289,25 +287,23 @@ func (fish *fishpiUserProperty) WssGetLiveness() {
 
 func msgHandle(msg, md *string, reg []string) (err error) {
 	var re *regexp.Regexp
-	for _, r := range reg {
-		re, err = regexp.Compile(r)
-		if err != nil {
-			return err
-		}
-		*msg = re.ReplaceAllString(*msg, "")
-	}
-
 	for i, char := range *msg {
-		if i+1 == len(*msg) {
-			continue
-		}
-		if char == '\n' {
+		if char == '\n' && i+1 != len(*msg) {
 			if (*msg)[i+1] == '\n' {
 				continue
 			}
 		}
 		*md += (string)(char)
 	}
+
+	for _, r := range reg {
+		re, err = regexp.Compile(r)
+		if err != nil {
+			return err
+		}
+		*md = re.ReplaceAllString(*md, "")
+	}
+
 	return nil
 }
 
