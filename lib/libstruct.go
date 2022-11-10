@@ -52,6 +52,17 @@ type getRedpacketContent struct {
 	} `json:"who"`
 }
 
+type imageUpload struct {
+	Msg  string `json:"msg"`
+	Code int    `json:"code"`
+	Data struct {
+		ErrFiles []interface{} `json:"errFiles"`
+		SuccMap  struct {
+			TmpPng string `json:"tmp.png"`
+		} `json:"succMap"`
+	} `json:"data"`
+}
+
 type apiKeyContent struct {
 	Key  string `json:"key"`
 	Msg  string `json:"msg"`
@@ -109,7 +120,7 @@ var (
 	}
 	reg = []string{
 		`(?m:^>(.*?)((\[.*?\]\(.*?\))){1,})`,
-		`<.*>`,
+		`(?m:<.*?>)`,
 	}
 	client = &http.Client{}
 )

@@ -12,8 +12,10 @@ import (
 	"io/ioutil"
 	"log"
 	"math/rand"
+	"mime/multipart"
 	"net/http"
 	"os"
+	"os/exec"
 	"os/signal"
 	"regexp"
 	"strings"
@@ -24,13 +26,18 @@ import (
 )
 
 type fishpiUserProperty struct {
-	ApiKey   string
-	Origin   string
-	SendMsg  string
-	UserName string `json:"username"`
-	Password string `json:"password"`
-	Exit     chan os.Signal
-	message  JSON
+	ApiKey         string
+	Origin         string
+	SendMsg        string
+	ImageUrl       string
+	UserName       string `json:"username"`
+	Password       string `json:"password"`
+	Exit           chan os.Signal
+	message        JSON
+	RequestContent struct {
+		content     map[string]string
+		imageBuffer io.Reader
+	}
 }
 
 func NewFishpi() (*fishpiUserProperty, error) {
@@ -57,7 +64,9 @@ func NewFishpi() (*fishpiUserProperty, error) {
 }
 
 func (fish *fishpiUserProperty) WssLogin() error {
-	var apikey apiKeyContent
+	var (
+		apikey apiKeyContent
+	)
 	fish.md5String(&fish.Password)
 	k := make(map[string]string)
 	k["nameOrEmail"] = fish.UserName
@@ -72,7 +81,9 @@ func (fish *fishpiUserProperty) WssLogin() error {
 		str = ""
 	}
 	k["mfaCode"] = strings.Split(str, "\n")[0]
-	responseBody, err := Requests("POST", "https://fishpi.cn/api/getKey", k)
+	fish.RequestContent.content = k
+	fish.RequestContent.imageBuffer = nil
+	responseBody, err := fish.Requests("POST", "https://fishpi.cn/api/getKey")
 	if err != nil {
 		return err
 	}
@@ -111,11 +122,10 @@ func (fish *fishpiUserProperty) WssLink() {
 
 	mt := messageType{
 		"msg": func(message *JSON) {
-			var md string
 			if strings.Contains((*message).Content, "redPacket") {
 				fish.WssOpenRedPacket(message)
 			} else {
-				err := msgHandle(&message.Md, &md, reg)
+				err := msgHandle(&message.Md, reg)
 				if err != nil {
 					log.Println("message handle err: ", err)
 					return
@@ -183,7 +193,9 @@ func (fish *fishpiUserProperty) WssOpenRedPacket(msg *JSON) {
 		for k := (int64)(0); k < 3; k = (time.Now().Unix() - start) {
 		}
 	}
-	responseBody, err := Requests("POST", "https://fishpi.cn/chat-room/red-packet/open", openRedPacke)
+	fish.RequestContent.content = openRedPacke
+	fish.RequestContent.imageBuffer = nil
+	responseBody, err := fish.Requests("POST", "https://fishpi.cn/chat-room/red-packet/open")
 	if err != nil {
 		log.Println("requests set err: ", err)
 		return
@@ -220,7 +232,7 @@ func (fish *fishpiUserProperty) redPacketStatus(msg *JSON, msgContent *redConten
 			j += 1
 		}
 
-		responseBody, err = Requests("GET", fmt.Sprintf("https://fishpi.cn/chat-room/more?apiKey=%s&page=%d", fish.ApiKey, j), nil)
+		responseBody, err = fish.Requests("GET", fmt.Sprintf("https://fishpi.cn/chat-room/more?apiKey=%s&page=%d", fish.ApiKey, j))
 		if err != nil {
 			fish.WssPrintMsg("红包机器人", msg.UserName, "打开红包", err.Error())
 			return false
@@ -257,10 +269,12 @@ func WssOnline(mes *JSON) {
 
 }
 
-func (fish *fishpiUserProperty) WssSendMsg() {
+func (fish *fishpiUserProperty) sendMsg(content string) {
 	sendMessage["apiKey"] = fish.ApiKey
-	sendMessage["content"] = fmt.Sprintf("%s\n>————————*Go client [%.2f%%]*", fish.SendMsg, liveness.Liveness)
-	responseBody, err := Requests("POST", "https://fishpi.cn/chat-room/send", sendMessage)
+	sendMessage["content"] = content
+	fish.RequestContent.content = sendMessage
+	fish.RequestContent.imageBuffer = nil
+	responseBody, err := fish.Requests("POST", "https://fishpi.cn/chat-room/send")
 	if err != nil {
 		log.Println("requests set err: ", err)
 		return
@@ -275,7 +289,7 @@ func (fish *fishpiUserProperty) WssSendMsg() {
 }
 
 func (fish *fishpiUserProperty) WssGetLiveness() {
-	responseBody, err := Requests("GET", "https://fishpi.cn/user/liveness?apiKey="+fish.ApiKey, nil)
+	responseBody, err := fish.Requests("GET", "https://fishpi.cn/user/liveness?apiKey="+fish.ApiKey)
 	if err != nil {
 		log.Println("requests set err: ", err)
 		return
@@ -283,37 +297,44 @@ func (fish *fishpiUserProperty) WssGetLiveness() {
 	_ = json.Unmarshal(responseBody, &liveness)
 }
 
-func msgHandle(msg, md *string, reg []string) (err error) {
-	var re *regexp.Regexp
-	for i, char := range *msg {
-		if char == '\n' && i+1 != len(*msg) {
-			if (*msg)[i+1] == '\n' {
-				continue
-			}
-		}
-		*md += (string)(char)
-	}
-
+func msgHandle(msg *string, reg []string) (md string, err error) {
+	var (
+		re  *regexp.Regexp
+		tmp = *msg
+	)
 	for _, r := range reg {
 		re, err = regexp.Compile(r)
 		if err != nil {
-			return err
+			return "", err
 		}
-		*md = re.ReplaceAllString(*md, "")
+		tmp = re.ReplaceAllString(tmp, "")
 	}
-
-	return nil
+	for i, char := range tmp {
+		if char == '\n' && i+1 != len(tmp) {
+			if tmp[i+1] == '\n' {
+				continue
+			}
+		}
+		tmp += (string)(char)
+	}
+	md = tmp
+	return md, nil
 }
 
-func Requests(mode, url string, content map[string]string) (body []byte, err error) {
+func (fish *fishpiUserProperty) Requests(mode, url string) (body []byte, err error) {
 	var (
-		request  *http.Request
-		response *http.Response
+		request     *http.Request
+		response    *http.Response
+		requestBody io.Reader
 	)
 
-	requestBody, err := setRequestBody(content)
-	if err != nil {
-		return nil, err
+	if fish.RequestContent.imageBuffer != nil {
+		requestBody = fish.RequestContent.imageBuffer
+	} else {
+		requestBody, err = setRequestBody(fish.RequestContent.content)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	request, err = http.NewRequest(mode, url, requestBody)
@@ -333,9 +354,8 @@ func Requests(mode, url string, content map[string]string) (body []byte, err err
 		log.Println("send request err: ", err)
 		return nil, err
 	}
-	defer func() {
-		err = response.Body.Close()
-	}()
+	defer response.Body.Close()
+
 	body, err = ioutil.ReadAll(response.Body)
 	if err != nil {
 		log.Println("reader response body err: ", err)
@@ -354,38 +374,120 @@ func setRequestBody(content map[string]string) (io.Reader, error) {
 	return bytes.NewReader(marshalBody), nil
 }
 
+func setImageRequestBody(path string) (io.Reader, error) {
+	var (
+		suffix  = [4]string{"png", "jpg", "gif", "bmp"}
+		srcFile io.Reader
+		out     []byte
+		err     error
+	)
+
+	buff := new(bytes.Buffer)
+	writer := multipart.NewWriter(buff)
+	fromFile, err := writer.CreateFormFile("file[]", path)
+	if err != nil {
+		return nil, err
+	}
+
+	if path == "" {
+		for i := 0; i < 4; i++ {
+			exe := exec.Command("/bin/bash", "-c", "xclip -sel -c -t image/"+suffix[i]+" -o")
+			out, err = exe.CombinedOutput()
+			if err != nil && i == len(suffix)-1 {
+				return nil, errors.New("剪切板里数据未知类型")
+			}
+		}
+		reader := bytes.NewReader(out)
+		srcFile = reader
+	} else {
+		file, err := os.Open(path)
+		if err != nil {
+			return nil, err
+		}
+		srcFile = file
+		defer file.Close()
+	}
+
+	_, err = io.Copy(fromFile, srcFile)
+	if err != nil {
+		return nil, err
+	}
+	writer.Close()
+
+	return buff, nil
+}
+
+func (fish *fishpiUserProperty) WssSendImage(path string) {
+	var (
+		buff         io.Reader
+		err          error
+		responseBody []byte
+		image        imageUpload
+	)
+	buff, err = setImageRequestBody(path)
+	if err != nil {
+		fish.WssPrintMsg("Fish机器人", fish.UserName, "命令", err.Error())
+		return
+	}
+	fish.RequestContent.content = nil
+	fish.RequestContent.imageBuffer = buff
+	responseBody, err = fish.Requests("POST", "https://fishpi.cn/upload")
+	if err != nil {
+		fish.WssPrintMsg("Fish机器人", fish.UserName, "命令", err.Error())
+		return
+	}
+	json.Unmarshal(responseBody, &image)
+	fish.ImageUrl = image.Data.SuccMap.TmpPng
+	fish.WssSendMsg("img")
+}
+
+func (fish *fishpiUserProperty) WssSendMsg(mold string) {
+	var content string
+	switch mold {
+	case "msg":
+		content = fmt.Sprintf("%s\n>————*Go client [%.2f%%]*", fish.SendMsg, liveness.Liveness)
+	case "img":
+		content = fmt.Sprintf("![images](%s)\n>————*Go client [%.2f%%]*", fish.ImageUrl, liveness.Liveness)
+	}
+	fish.sendMsg(content)
+}
+
 func (fish *fishpiUserProperty) WssClient() {
-	var c []string
+	var (
+		c []string
+		s string
+	)
 	for _, n := range helpInfo {
 		help += n
 	}
 	fish.WssPrintMsg("Fish机器人", fish.UserName, "命令", help)
 	go fish.WssGetLiveness()
-	for {
-		b := bufio.NewReaderSize(os.Stdin, 512)
-		if s, err := b.ReadString('\n'); err != nil {
-			fmt.Println(err)
-			os.Exit(1)
-		} else {
-			s = strings.Split(s, "\n")[0]
-			if strings.HasPrefix(s, "#") {
-				c = strings.Split(s, " ")
-				switch c[0] {
-				case "#rockmod":
-					fish.WssSetRockMod()
-				case "#heartmod":
-					fish.WssSetHeartMod()
-				case "#getpoint":
-					fish.WssGetYesterdayPoint()
-				case "#help":
-					fish.WssPrintMsg("Fish机器人", fish.UserName, "命令", help)
-				default:
-					fish.WssPrintMsg("Fish机器人", fish.UserName, "命令", "没有此命令"+c[0])
+	b := bufio.NewScanner(os.Stdin)
+	for b.Scan() {
+		s = strings.Split(b.Text(), "\n")[0]
+		if strings.HasPrefix(s, "#") {
+			c = strings.Split(s, " ")
+			switch c[0] {
+			case "#rockmod":
+				fish.WssSetRockMod()
+			case "#heartmod":
+				fish.WssSetHeartMod()
+			case "#getpoint":
+				fish.WssGetYesterdayPoint()
+			case "#img":
+				if len(c) < 2 {
+					setImageRequestBody("")
+				} else {
+					setImageRequestBody(c[1])
 				}
-			} else {
-				fish.SendMsg = s
-				fish.WssSendMsg()
+			case "#help":
+				fish.WssPrintMsg("Fish机器人", fish.UserName, "命令", help)
+			default:
+				fish.WssPrintMsg("Fish机器人", fish.UserName, "命令", "没有此命令"+c[0])
 			}
+		} else {
+			fish.SendMsg = s
+			fish.WssSendMsg("msg")
 		}
 	}
 }
@@ -415,7 +517,7 @@ func (fish *fishpiUserProperty) WssSetHeartMod() {
 }
 
 func (fish *fishpiUserProperty) WssGetYesterdayPoint() {
-	responseBody, err := Requests("GET", "https://fishpi.cn/activity/yesterday-liveness-reward-api?apiKey="+fish.ApiKey, nil)
+	responseBody, err := fish.Requests("GET", "https://fishpi.cn/activity/yesterday-liveness-reward-api?apiKey="+fish.ApiKey)
 	s := ""
 	if err != nil {
 		log.Println("get yesterday point err:", err)
@@ -430,12 +532,12 @@ func (fish *fishpiUserProperty) WssGetYesterdayPoint() {
 	case -1:
 		s = "已经领取过积分了"
 	default:
-		s = fmt.Sprintf("获取到%d积分", yesterdayPonit.Sum)
+		s = fmt.Sprintf("获到%d积分", yesterdayPonit.Sum)
 	}
 	fish.WssPrintMsg("Fish机器人", fish.UserName, "命令", s)
 }
 
 func (fish *fishpiUserProperty) WssPrintMsg(userNickname, userName, info, md string) {
 	fmt.Printf("%s(%s)(%s):\n>%s\n\n", userNickname, userName, info, md)
-	fmt.Print(">")
+	fmt.Printf(">")
 }
