@@ -37,6 +37,7 @@ type fishpiUserProperty struct {
 	RequestContent struct {
 		content     map[string]string
 		imageBuffer io.Reader
+		contentType string
 	}
 }
 
@@ -125,7 +126,7 @@ func (fish *fishpiUserProperty) WssLink() {
 			if strings.Contains((*message).Content, "redPacket") {
 				fish.WssOpenRedPacket(message)
 			} else {
-				err := msgHandle(&message.Md, reg)
+				md, err := msgHandle(&message.Md, reg)
 				if err != nil {
 					log.Println("message handle err: ", err)
 					return
@@ -315,9 +316,8 @@ func msgHandle(msg *string, reg []string) (md string, err error) {
 				continue
 			}
 		}
-		tmp += (string)(char)
+		md += (string)(char)
 	}
-	md = tmp
 	return md, nil
 }
 
@@ -348,6 +348,9 @@ func (fish *fishpiUserProperty) Requests(mode, url string) (body []byte, err err
 	if mode == "POST" {
 		request.Header.Set("Content-Type", "application/json")
 	}
+	if fish.RequestContent.imageBuffer != nil {
+		request.Header.Set("Content-Type", fish.RequestContent.contentType)
+	}
 
 	response, err = client.Do(request)
 	if err != nil {
@@ -374,7 +377,7 @@ func setRequestBody(content map[string]string) (io.Reader, error) {
 	return bytes.NewReader(marshalBody), nil
 }
 
-func setImageRequestBody(path string) (io.Reader, error) {
+func setImageRequestBody(path string) (io.Reader, string, error) {
 	var (
 		suffix  = [4]string{"png", "jpg", "gif", "bmp"}
 		srcFile io.Reader
@@ -384,9 +387,9 @@ func setImageRequestBody(path string) (io.Reader, error) {
 
 	buff := new(bytes.Buffer)
 	writer := multipart.NewWriter(buff)
-	fromFile, err := writer.CreateFormFile("file[]", path)
+	fromFile, err := writer.CreateFormFile("file[]", "tmp.png")
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
 	if path == "" {
@@ -394,15 +397,16 @@ func setImageRequestBody(path string) (io.Reader, error) {
 			exe := exec.Command("/bin/bash", "-c", "xclip -sel -c -t image/"+suffix[i]+" -o")
 			out, err = exe.CombinedOutput()
 			if err != nil && i == len(suffix)-1 {
-				return nil, errors.New("剪切板里数据未知类型")
+				return nil, "", errors.New("剪切板里数据未知类型")
 			}
+			break
 		}
 		reader := bytes.NewReader(out)
 		srcFile = reader
 	} else {
 		file, err := os.Open(path)
 		if err != nil {
-			return nil, err
+			return nil, "", err
 		}
 		srcFile = file
 		defer file.Close()
@@ -410,27 +414,29 @@ func setImageRequestBody(path string) (io.Reader, error) {
 
 	_, err = io.Copy(fromFile, srcFile)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
+	contentType := writer.FormDataContentType()
 	writer.Close()
-
-	return buff, nil
+	return buff, contentType, nil
 }
 
 func (fish *fishpiUserProperty) WssSendImage(path string) {
 	var (
+		contentType  string
 		buff         io.Reader
 		err          error
 		responseBody []byte
 		image        imageUpload
 	)
-	buff, err = setImageRequestBody(path)
+	buff, contentType, err = setImageRequestBody(path)
 	if err != nil {
 		fish.WssPrintMsg("Fish机器人", fish.UserName, "命令", err.Error())
 		return
 	}
 	fish.RequestContent.content = nil
 	fish.RequestContent.imageBuffer = buff
+	fish.RequestContent.contentType = contentType
 	responseBody, err = fish.Requests("POST", "https://fishpi.cn/upload")
 	if err != nil {
 		fish.WssPrintMsg("Fish机器人", fish.UserName, "命令", err.Error())
@@ -476,9 +482,9 @@ func (fish *fishpiUserProperty) WssClient() {
 				fish.WssGetYesterdayPoint()
 			case "#img":
 				if len(c) < 2 {
-					setImageRequestBody("")
+					fish.WssSendImage("")
 				} else {
-					setImageRequestBody(c[1])
+					fish.WssSendImage(c[1])
 				}
 			case "#help":
 				fish.WssPrintMsg("Fish机器人", fish.UserName, "命令", help)
