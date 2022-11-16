@@ -2,3 +2,5 @@
 ^.*/*
 .*.json
 config.json
+vendor
+.idea
