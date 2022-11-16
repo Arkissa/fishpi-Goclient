@@ -26,15 +26,16 @@ import (
 )
 
 type fishpiUserProperty struct {
-	ApiKey         string
-	Origin         string
-	SendMsg        string
-	ImageUrl       string
-	UserName       string `json:"username"`
-	Password       string `json:"password"`
-	Exit           chan os.Signal
-	message        JSON
-	RequestContent struct {
+	ApiKey             string
+	Origin             string
+	SendMsg            string
+	ImageUrl           string
+	UserName           string `json:"username"`
+	Password           string `json:"password"`
+	RedPacketDelayTime int64  `json:"redPacketDelayTime"`
+	Exit               chan os.Signal
+	message            JSON
+	RequestContent     struct {
 		content     map[string]string
 		imageBuffer io.Reader
 		contentType string
@@ -61,6 +62,11 @@ func NewFishpi() (*fishpiUserProperty, error) {
 		return nil, err
 	}
 	fish.WssPrintMsg("Fish机器人", fish.UserName, "命令", "登陆成功")
+	if fish.RedPacketDelayTime <= 3 {
+		fish.WssPrintMsg("Fish机器人", fish.UserName, "警告", "抢红包时间设置过短，已延长至10s")
+		fish.RedPacketDelayTime = 10
+	}
+	fish.WssPrintMsg("Fish机器人", fish.UserName, "命令", "已设置抢红包时间 "+fmt.Sprint(fish.RedPacketDelayTime)+" s")
 	return fish, nil
 }
 
@@ -191,7 +197,7 @@ func (fish *fishpiUserProperty) WssOpenRedPacket(msg *JSON) {
 
 	start := time.Now().Unix()
 	if !open {
-		for k := (int64)(0); k < 3; k = (time.Now().Unix() - start) {
+		for k := (int64)(0); k < fish.RedPacketDelayTime; k = (time.Now().Unix() - start) {
 		}
 	}
 	fish.RequestContent.content = openRedPacke
